@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生命游戏</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+
+            background-color: #2b2b2b;
+        }
+
+        #zr {
+            width: 800px;
+            height: 800px;
+
+            border: SOLID 1px HSLA(0, 0%, 100%, 0.2);
+        }
+
+        #op {
+            width: 800px;
+            height: fit-content;
+            margin: 10px;
+
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #op * {
+            color: #FFF;
+        }
+
+
+        #op input {
+            color: #2b2b2b;
+        }
+
+        #op>.row {
+            margin: 10px;
+        }
+
+        #op>.btn>button {
+            padding: 6px 12px;
+            color: #2b2b2b;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="zr"></div>
+
+    <div id="op">
+        <div class="row">周期: <span class="freCount">0</span></div>
+        <div class="row">方块数量: <input type="number" name="rectCount" id="rectCount" value="80"></div>
+        <div class="row">更新速率: <input type="number" name="updRate" id="updRate" value="120"></div>
+        <div class="row">初始覆盖率: <input type="number" name="randomRate" id="randomRate" value="40"></div>
+        <div class="row btn">
+            <button type="button" onclick="clearGame()">清空</button>
+            <button type="button" onclick="resetGame()">重置</button>
+            <button type="button" onclick="playOnce()">下一步</button>
+            <button type="button" onclick="continueGame()">开始</button>
+            <button type="button" onclick="stopGame()">结束</button>
+        </div>
+    </div>
+</body>
+
+<!-- https://jquery.com/ -->
+<script src="jquery.js"></script>
+<!-- https://ecomfe.github.io/zrender-doc/public/api.html -->
+<script src="zrender.js"></script>
+
+<script>
+    $(function () {
+        initConfig();
+        initStage();
+        initGrid();
+
+        randomLife();
+    })
+
+    //获取配置
+    function initConfig() {
+        window.config = {
+            game: null,
+            timeRate: $('#updRate').val(),
+            rectCount: $('#rectCount').val(),
+            zrParent: $('#zr')[0],
+            aliveColor: '#333333',
+            deadColor: '#c8c6c4',
+            randomLifeRate: $('#randomRate').val(),
+            freCount: 0,
+            bornCount: [3],
+            aliveCount: [2, 3],
+        }
+    }
+
+    //初始化容器
+    function initStage() {
+        let zr = zrender.init(config.zrParent);
+        zr.on('click', function (evt) {
+            const el = evt.target;
+            el.lifeGame.isNextAroundAliveState = !el.lifeGame.isNextAroundAliveState;
+            flushCellAliveState(el);
+        })
+        window.zr = zr;
+    }
+
+
+    //初始化宫格
+    function initGrid() {
+        const w = zr.getWidth();
+        const h = zr.getHeight();
+        const rectCount = config.rectCount;
+
+        const elW = w / rectCount;
+        const elH = h / rectCount;
+
+        const grid = []
+        let rect = null;
+        for (let x = 0; x < rectCount; x++) {
+            grid[x] = [];
+            for (let y = 0; y < rectCount; y++) {
+                rect = genRect(x, y, elW, elH);
+                grid[x][y] = rect;
+                zr.add(rect);
+            }
+        }
+        window.grid = grid;
+    }
+
+    //生成方块
+    function genRect(row, col, width, height) {
+        var rect = new zrender.Rect({
+            shape: {
+                x: row * width,
+                y: col * height,
+                width,
+                height,
+            },
+            style: {
+                fill: config.deadColor,
+                stroke: config.aliveColor,
+            },
+            lifeGame: {
+                row,
+                col,
+                isAliveState: false,
+                isNextAroundAliveState: false,
+            },
+        });
+        return rect;
+    }
+
+    //随机生成开始画面
+    function randomLife() {
+        const randomLifeRate = config.randomLifeRate;
+        grid.forEach(row => {
+            row.forEach(cell => {
+                cell.lifeGame.isNextAroundAliveState = (Math.random() * 100) < randomLifeRate;
+            })
+        })
+
+        flushAllCellAliveState();
+    }
+
+    //计算所有细胞的存活状态
+    function calcAllCellAliveState() {
+        grid.forEach(row => {
+            row.forEach(cell => calcCellIsAlive(cell))
+        })
+    }
+    //计算细胞存活状态
+    function calcCellIsAlive(cell) {
+        let aliveCount = countRoundAlive(cell);
+
+        if (config.bornCount.includes(aliveCount)) cell.lifeGame.isNextAroundAliveState = true;
+        else if (config.aliveCount.includes(aliveCount)) cell.lifeGame.isNextAroundAliveState = cell.lifeGame.isAliveState;
+        else cell.lifeGame.isNextAroundAliveState = false;
+    }
+
+    //统计周围存活数量
+    function countRoundAlive(cell) {
+        let row = cell.lifeGame.row;
+        let col = cell.lifeGame.col;
+
+        let pRow = boundX(row - 1);
+        let nRow = boundX(row + 1);
+        let pCol = boundY(col - 1);
+        let nCol = boundY(col + 1);
+
+        //获取周围一圈细胞存活数量
+        let aliveCount = 0;
+        aliveCount += grid[pRow][pCol].lifeGame.isAliveState + grid[pRow][col].lifeGame.isAliveState + grid[pRow][nCol].lifeGame.isAliveState;
+        aliveCount += grid[row][pCol].lifeGame.isAliveState /*+ grid[row][col].lifeGame.isAliveState*/ + grid[row][nCol].lifeGame.isAliveState;
+        aliveCount += grid[nRow][pCol].lifeGame.isAliveState + grid[nRow][col].lifeGame.isAliveState + grid[nRow][nCol].lifeGame.isAliveState;
+
+        return aliveCount;
+    }
+
+    //X边界处理
+    function boundX(x) {
+        const gridRowCount = grid.length - 1;
+        if (x <= 0) return gridRowCount;
+        if (x >= gridRowCount) return 0;
+
+        return x;
+    }
+
+    //Y边界处理
+    function boundY(y) {
+        const gridColCount = grid[0].length - 1;
+        if (y <= 0) return gridColCount;
+        if (y >= gridColCount) return 0;
+
+        return y;
+    }
+
+    //刷新某个细胞的生命状态
+    function flushCellAliveState(cell) {
+        cell.animateTo({
+            style: {
+                fill: cell.lifeGame.isNextAroundAliveState ? config.aliveColor : config.deadColor,
+                stroke: cell.lifeGame.isNextAroundAliveState ? config.deadColor : config.aliveColor,
+            },
+        }, 0, () => { });
+
+        cell.lifeGame.isAliveState = cell.lifeGame.isNextAroundAliveState
+    }
+    //刷新所有细胞的存活状态
+    function flushAllCellAliveState() {
+        grid.forEach(row => {
+            row.forEach(cell => flushCellAliveState(cell))
+        })
+    }
+
+    //游玩一次
+    function playOnce() {
+        calcAllCellAliveState();
+        flushAllCellAliveState();
+        $('.freCount').text(++config.freCount)
+    }
+
+    //获取存活数量
+    function getAliveCount() {
+        let count = 0;
+        grid.forEach(row => {
+            row.forEach(cell => {
+                if (cell.lifeGame.isAliveState) count++;
+            })
+        })
+        console.log('存货数量: ', count);
+    }
+
+    //重置
+    function resetGame() {
+        stopGame();
+        initConfig();
+        initStage();
+        initGrid();
+        randomLife();
+        $('.freCount').text(0)
+    }
+
+    //清空
+    function clearGame() {
+        stopGame();
+        initGrid();
+        config.freCount = 0;
+        $('.freCount').text(0)
+    }
+
+    //开始
+    function continueGame() {
+        if (config.game) return;
+        config.game = setInterval(playOnce, config.timeRate)
+    }
+
+    //停止
+    function stopGame() {
+        if (!config.game) return;
+        config.game = clearInterval(config.game)
+    }
+</script>
+
+</html>
